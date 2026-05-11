@@ -261,6 +261,7 @@ class OpenTelemetryMiddleware(TaskiqMiddleware):
             span.set_attribute(_TASK_TAG_KEY, _TASK_SEND)
             span.set_attribute(SpanAttributes.MESSAGING_MESSAGE_ID, message.task_id)
             span.set_attribute(_TASK_NAME_KEY, message.task_name)
+            span.set_attribute("taskiq.queue", message.queue)
             set_attributes_from_context(span, message.labels)
 
         activation = trace.use_span(span, end_on_exit=True)
@@ -288,7 +289,10 @@ class OpenTelemetryMiddleware(TaskiqMiddleware):
 
         activation.__exit__(None, None, None)
         detach_context(message, is_publish=True)
-        self.n_tasks_sent_counter.add(1, attributes={"task_name": message.task_name})
+        self.n_tasks_sent_counter.add(
+            1,
+            attributes={"task_name": message.task_name, "queue": message.queue},
+        )
 
     def pre_execute(self, message: TaskiqMessage) -> TaskiqMessage:
         """
@@ -308,13 +312,16 @@ class OpenTelemetryMiddleware(TaskiqMiddleware):
             kind=trace.SpanKind.CONSUMER,
         )
 
+        if span.is_recording():
+            span.set_attribute("taskiq.queue", message.queue)
+
         activation = trace.use_span(span, end_on_exit=True)
         activation.__enter__()  # pylint: disable=E1101
         attach_context(message, span, activation, token)
         message.labels[_TASK_RECEIVED_TIME_KEY] = datetime.now(timezone.utc).timestamp()
         self.number_of_broker_active_tasks.add(
             1,
-            attributes={"task_name": message.task_name},
+            attributes={"task_name": message.task_name, "queue": message.queue},
         )
         return message
 
@@ -417,22 +424,31 @@ class OpenTelemetryMiddleware(TaskiqMiddleware):
                 # Add retry reason metadata to span
                 self.n_errors_counter.add(
                     1,
-                    attributes={"retry_error": True, "task_name": message.task_name},
+                    attributes={
+                        "retry_error": True,
+                        "task_name": message.task_name,
+                        "queue": message.queue,
+                    },
                 )
             else:
                 self.n_errors_counter.add(
                     1,
-                    attributes={"retry_error": False, "task_name": message.task_name},
+                    attributes={
+                        "retry_error": False,
+                        "task_name": message.task_name,
+                        "queue": message.queue,
+                    },
                 )
         else:
             self.n_success_counter.add(
                 1,
-                attributes={"task_name": message.task_name},
+                attributes={"task_name": message.task_name, "queue": message.queue},
             )
         self.execution_time_hist.record(
             result.execution_time,
             attributes={
                 "task_name": message.task_name,
+                "queue": message.queue,
             },
         )
         task_receive_time = message.labels.get(_TASK_RECEIVED_TIME_KEY)
@@ -440,12 +456,15 @@ class OpenTelemetryMiddleware(TaskiqMiddleware):
         if task_receive_time is not None and task_send_time is not None:
             self.task_wait_time.record(
                 amount=task_receive_time - task_send_time,
-                attributes={"task_name": message.task_name},
+                attributes={
+                    "task_name": message.task_name,
+                    "queue": message.queue,
+                },
             )
 
         self.number_of_broker_active_tasks.add(
             -1,
-            attributes={"task_name": message.task_name},
+            attributes={"task_name": message.task_name, "queue": message.queue},
         )
 
     def on_prefetch_queue_add(self) -> None:
