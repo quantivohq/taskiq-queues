@@ -1,5 +1,6 @@
 import sys
 from collections.abc import Callable, Coroutine
+from copy import copy
 from datetime import datetime, timedelta
 from types import CoroutineType
 from typing import (
@@ -242,7 +243,7 @@ class AsyncTaskiqDecoratedTask(Generic[_FuncParams, _ReturnType]):
         return AsyncKicker(
             task_name=self.task_name,
             broker=self.broker,
-            labels=dict(self.labels),
+            labels=copy(self.labels),
             queue=self.queue,
             return_type=self.return_type,
         )
