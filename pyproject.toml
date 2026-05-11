@@ -108,6 +108,9 @@ omit = [
 [tool.hatch.version]
 source = "versioningit"
 
+[tool.versioningit]
+default-version = "0.12.1"
+
 [tool.isort]
 profile = "black"
 multi_line_output = 3
